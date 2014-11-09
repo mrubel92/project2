@@ -33,12 +33,44 @@ struct TCPState {
     }
 };
 
+void sendpacket(MinetHandle handle, Connection c, int seq, int ack, unsigned char flags)
+{
+	Packet sp;
+	IPHeader iph;
+	TCPHeader tcph;
+	
+	//Set IP Header
+	iph.SetSourceIP(c.src);
+	iph.SetDestIP(c.dest);
+	iph.SetProtocol(IP_PROTO_TCP);
+	//will have to add packet length once we add payload
+	iph.SetTotalLength(TCP_HEADER_BASE_LENGTH + IP_HEADER_BASE_LENGTH);
+	sp.PushFrontHeader(iph);
+	
+	//Set TCPHeader
+	tcph.SetDestPort(c.destport, sp);
+	tcph.SetSourcePort(c.srcport, sp);
+	tcph.SetFlags(flags, sp);
+	tcph.SetSeqNum(seq, sp);
+	if(IS_ACK(flags))
+	{
+		tcph.SetAckNum(ack, sp);
+	}
+	tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, sp);
+	sp.PushBackHeader(tcph);
+	MinetSend(handle, sp);
+	
+}
+
 
 int main(int argc, char * argv[]) {
     MinetHandle mux;
     MinetHandle sock;
     
     ConnectionList<TCPState> clist;
+	
+	//Temporary connection object to avoid using clist
+	Connection temp;
 
     MinetInit(MINET_TCP_MODULE);
 
@@ -71,25 +103,240 @@ int main(int argc, char * argv[]) {
     MinetSendToMonitor(MinetMonitoringEvent("tcp_module STUB VERSION handling tcp traffic........"));
 
     MinetEvent event;
-    double timeout = 1;
+    double timeout = 100;
+	
+	Connection c;
+	/* COMMENT OUT WHEN NOT IN CLIENT MODE */
+	
+	cout << "Sending SYN...\n";
+	c.src = MyIPAddr();
+	c.dest = "192.168.42.3";
+	c.srcport = 5050;
+	c.destport = 3000;
+	unsigned char flag = 0;
+	SET_SYN(flag);
+	int seqnum = 500;
+	sendpacket(mux, c, seqnum, 0, flag);
+	sendpacket(mux, c, seqnum, 0, flag);
+	
+	
 
     while (MinetGetNextEvent(event, timeout) == 0) {
 
-	if ((event.eventtype == MinetEvent::Dataflow) && 
-	    (event.direction == MinetEvent::IN)) {
-	
-	    if (event.handle == mux) {
-		// ip packet has arrived!
-	    }
+		if ((event.eventtype == MinetEvent::Dataflow) && 
+			(event.direction == MinetEvent::IN)) {
+		
+			if (event.handle == mux) 
+			{
+				// ip packet has arrived!
+				cout<< "In event.handle == mux loop\n";
+				
+				Packet rec;
+				TCPHeader tcpheader;
+				IPHeader ipheader;
+				size_t size, actualSize;
+				char recvBuf[1024];
+				
+				
+				//Receive packet
+				MinetReceive(mux, rec);
+				unsigned short len = TCPHeader::EstimateTCPHeaderLength(rec);
+				unsigned char flags = 0;
+				unsigned int recseq;
+				rec.ExtractHeaderFromPayload<TCPHeader>(len);
+				
+				//pull headers
+				tcpheader = rec.FindHeader(Headers::TCPHeader);
+				ipheader = rec.FindHeader(Headers::IPHeader);
+				
+				//Lines 79-85 on udp, I assume this is setting the conn
+				//with the proper properties.
+				ipheader.GetDestIP(c.src);
+				ipheader.GetSourceIP(c.dest);
+				c.protocol = IP_PROTO_TCP;
+				tcpheader.GetSourcePort(c.destport);
+				tcpheader.GetDestPort(c.srcport);
+				
+				//Get flags
+				tcpheader.GetFlags(flags);
+				
+				if(IS_SYN(flags) && !IS_ACK(flags))
+				{
+					cout<< "this is a syn \n";
+					//Add new connection
+					
+					
+					tcpheader.GetSeqNum(recseq);
+					
+					flags = 0;
+					SET_SYN(flags);
+					SET_ACK(flags);
+					sendpacket(mux, c, 500, recseq + 1,  flags);						
+					
+					/*SockRequestResponse resp;
+					resp.type = WRITE;
+					resp.connection = c;
+					resp.error = EOK;
+					resp.data = NULL;
+					
+					MinetSend(sock, resp);*/
+					
+				}
+				else if(IS_SYN(flags) && IS_ACK(flags))
+				{
+					//Send ack
+					tcpheader.GetSeqNum(recseq);
+					flags = 0;
+					SET_ACK(flags);
+					sendpacket(mux, c, seqnum +1, recseq + 1, flags);
+				}
+				else
+				{
+					cout << "Recieved another packet\n";
+					
+				
+				}
+					/*else
+					{
+						//Same error processing as in udp 105-109
+						MinetSendToMonitor(MinetMonitoringEvent("Unknown port, sending ICMP error message"));
+						IPAddress source; ipheader.GetSourceIP(source);
+						ICMPPacket error(source,DESTINATION_UNREACHABLE,PORT_UNREACHABLE,rec);
+						MinetSendToMonitor(MinetMonitoringEvent("ICMP error message has been sent to host"));
+						MinetSend(mux, error);
+					}
+				}*/
+				
+				
+				
+				
+				
+				
+				//Buffer payload = rec.GetPayload().ExtractFront((unsigned short)size);
+				
+				//display buffer
+				//size = payload.GetSize();
+				//actualSize = payload.GetData(recvBuf, size, 0);
+				
+				
+				//cout << recvBuf << "\n" << size << "\n" << actualSize << "\n";
+				//cout << recvBuf << "\n" << size << "\n" << actualSize << "\n";
+				
+			}
 
-	    if (event.handle == sock) {
-		// socket request or response has arrived
-	    }
-	}
+			if (event.handle == sock) 
+			{
+				SockRequestResponse req;
+				MinetReceive(sock,req);
+				switch (req.type) 
+				{
+					case CONNECT:
+					case ACCEPT:
+					{ // ignored, send OK response
+						SockRequestResponse repl;
+						repl.type=STATUS;
+						repl.connection=req.connection;
+						// buffer is zero bytes
+						repl.bytes=0;
+						repl.error=EOK;
+						MinetSend(sock,repl);
+					}
+					break;
+					case STATUS:
+					  // ignored, no response needed
+					  break;
+					  // case SockRequestResponse::WRITE:
+					case WRITE:
+					{
+						/*unsigned bytes = MIN_MACRO(UDP_MAX_DATA, req.data.GetSize());
+						// create the payload of the packet
+						Packet p(req.data.ExtractFront(bytes));
+						// Make the IP header first since we need it to do the udp checksum
+						IPHeader ih;
+						ih.SetProtocol(IP_PROTO_UDP);
+						ih.SetSourceIP(req.connection.src);
+						ih.SetDestIP(req.connection.dest);
+						ih.SetTotalLength(bytes+UDP_HEADER_LENGTH+IP_HEADER_BASE_LENGTH);
+						// push it onto the packet
+						p.PushFrontHeader(ih);
+						// Now build the UDP header
+						// notice that we pass along the packet so that the udpheader can find
+						// the ip header because it will include some of its fields in the checksum
+						UDPHeader uh;
+						uh.SetSourcePort(req.connection.srcport,p);
+						uh.SetDestPort(req.connection.destport,p);
+						uh.SetLength(UDP_HEADER_LENGTH+bytes,p);
+						// Now we want to have the udp header BEHIND the IP header
+						p.PushBackHeader(uh);
+						MinetSend(mux,p);
+						SockRequestResponse repl;
+						// repl.type=SockRequestResponse::STATUS;
+						repl.type=STATUS;
+						repl.connection=req.connection;
+						repl.bytes=bytes;
+						repl.error=EOK;
+						MinetSend(sock,repl);*/
+					}
+					break;
+					  // case SockRequestResponse::FORWARD:
+					case FORWARD:
+					{
+						ConnectionToStateMapping<TCPState> m;
+						m.connection=req.connection;
+						// remove any old forward that might be there.
+						ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
+						if (cs!=clist.end()) {
+							clist.erase(cs);
+						}
+						clist.push_back(m);
+						SockRequestResponse repl;
+						// repl.type=SockRequestResponse::STATUS;
+						repl.type=STATUS;
+						repl.connection=req.connection;
+						repl.error=EOK;
+						repl.bytes=0;
+						MinetSend(sock,repl);
+					}
+					break;
+					  // case SockRequestResponse::CLOSE:
+					case CLOSE:
+					{
+						ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
+						SockRequestResponse repl;
+						repl.connection=req.connection;
+						// repl.type=SockRequestResponse::STATUS;
+						repl.type=STATUS;
+						if (cs==clist.end()) {
+							repl.error=ENOMATCH;
+						} else {
+							repl.error=EOK;
+							clist.erase(cs);
+						}
+						MinetSend(sock,repl);
+					}
+					break;
+					default:
+					{
+						SockRequestResponse repl;
+						// repl.type=SockRequestResponse::STATUS;
+						repl.type=STATUS;
+						repl.error=EWHAT;
+						MinetSend(sock,repl);
+					}
+				}
+			}
+		}
 
-	if (event.eventtype == MinetEvent::Timeout) {
-	    // timeout ! probably need to resend some packets
-	}
+		else if (event.eventtype == MinetEvent::Timeout) 
+		{
+			// timeout ! probably need to resend some packets
+			
+			//cout<< "Timeout event\n";
+		}
+		else
+		{
+			cout << "I have no idea how anything could get here";
+		}
 
     }
 
