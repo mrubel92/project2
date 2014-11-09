@@ -33,6 +33,35 @@ struct TCPState {
     }
 };
 
+void sendpacket(MinetHandle handle, Connection c, int seq, int ack, unsigned char flags)
+{
+	Packet sp;
+	IPHeader iph;
+	TCPHeader tcph;
+	
+	//Set IP Header
+	iph.SetSourceIP(c.src);
+	iph.SetDestIP(c.dest);
+	iph.SetProtocol(IP_PROTO_TCP);
+	//will have to add packet length once we add payload
+	iph.SetTotalLength(TCP_HEADER_BASE_LENGTH + IP_HEADER_BASE_LENGTH);
+	sp.PushFrontHeader(iph);
+	
+	//Set TCPHeader
+	tcph.SetDestPort(c.destport, sp);
+	tcph.SetSourcePort(c.srcport, sp);
+	tcph.SetFlags(flags, sp);
+	tcph.SetSeqNum(seq, sp);
+	if(IS_ACK(flags))
+	{
+		tcph.SetAckNum(ack, sp);
+	}
+	tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, sp);
+	sp.PushBackHeader(tcph);
+	MinetSend(handle, sp);
+	
+}
+
 
 int main(int argc, char * argv[]) {
     MinetHandle mux;
@@ -75,6 +104,22 @@ int main(int argc, char * argv[]) {
 
     MinetEvent event;
     double timeout = 100;
+	
+	Connection c;
+	/* COMMENT OUT WHEN NOT IN CLIENT MODE */
+	
+	cout << "Sending SYN...\n";
+	c.src = MyIPAddr();
+	c.dest = "192.168.42.3";
+	c.srcport = 5050;
+	c.destport = 3000;
+	unsigned char flag = 0;
+	SET_SYN(flag);
+	int seqnum = 500;
+	sendpacket(mux, c, seqnum, 0, flag);
+	sendpacket(mux, c, seqnum, 0, flag);
+	
+	
 
     while (MinetGetNextEvent(event, timeout) == 0) {
 
@@ -91,13 +136,13 @@ int main(int argc, char * argv[]) {
 				IPHeader ipheader;
 				size_t size, actualSize;
 				char recvBuf[1024];
-				Connection c;
 				
 				
 				//Receive packet
 				MinetReceive(mux, rec);
 				unsigned short len = TCPHeader::EstimateTCPHeaderLength(rec);
-				unsigned char flags;
+				unsigned char flags = 0;
+				unsigned int recseq;
 				rec.ExtractHeaderFromPayload<TCPHeader>(len);
 				
 				//pull headers
@@ -115,73 +160,43 @@ int main(int argc, char * argv[]) {
 				//Get flags
 				tcpheader.GetFlags(flags);
 				
-				
-				//Working with connectionlist
-				ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
-				
-				if (cs != clist.end())
+				if(IS_SYN(flags) && !IS_ACK(flags))
 				{
-					//connection already est
-					cout << "We should be replying here I think\n";
+					cout<< "this is a syn \n";
+					//Add new connection
+					
+					
+					tcpheader.GetSeqNum(recseq);
+					
+					flags = 0;
+					SET_SYN(flags);
+					SET_ACK(flags);
+					sendpacket(mux, c, 500, recseq + 1,  flags);						
+					
+					/*SockRequestResponse resp;
+					resp.type = WRITE;
+					resp.connection = c;
+					resp.error = EOK;
+					resp.data = NULL;
+					
+					MinetSend(sock, resp);*/
+					
+				}
+				else if(IS_SYN(flags) && IS_ACK(flags))
+				{
+					//Send ack
+					tcpheader.GetSeqNum(recseq);
+					flags = 0;
+					SET_ACK(flags);
+					sendpacket(mux, c, seqnum +1, recseq + 1, flags);
 				}
 				else
 				{
-					//I think we have to make a new connection here
-					cout << "Not in connection list\n";
-					//Check to ensure that we received a syn
+					cout << "Recieved another packet\n";
 					
-					if(IS_SYN(flags))
-					{
-						cout<< "this is a syn \n";
-						//Add new connection
-						
-						unsigned int recseq;
-						unsigned short recsrcport;
-						tcpheader.GetSeqNum(recseq);
-						tcpheader.GetSourcePort(recsrcport);
-						
-						//This must be a ctsm, not jsut a connection
-						//clist.push_back(c);
-						
-						Packet rp;
-						TCPHeader rtcph;
-						IPHeader riph;
-						flags = 0;
-						
-						//Setup IP Header
-						riph.SetProtocol(IP_PROTO_TCP);
-						riph.SetSourceIP(c.src);
-						riph.SetDestIP(c.dest);
-						riph.SetTotalLength(TCP_HEADER_BASE_LENGTH + IP_HEADER_BASE_LENGTH);
-						rp.PushFrontHeader(riph);
-						
-						//Setup TCP header
-						SET_SYN(flags);
-						SET_ACK(flags);
-						rtcph.SetSourcePort(c.srcport, rp);
-						rtcph.SetDestPort(c.destport, rp);
-						rtcph.SetSeqNum(100, rp);
-						rtcph.SetAckNum(recseq + 1, rp);
-						rtcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, rp);
-						rtcph.SetFlags(flags, rp);
-						if(rtcph.IsCorrectChecksum(rp))
-						{
-							cout << "Checksum should be ok\n";
-						}
-						rp.PushBackHeader(rtcph);
-						MinetSend(mux, rp);
-						
-						
-						/*SockRequestResponse resp;
-						resp.type = WRITE;
-						resp.connection = c;
-						resp.error = EOK;
-						resp.data = NULL;
-						
-						MinetSend(sock, resp);*/
-						
-					}
-					else
+				
+				}
+					/*else
 					{
 						//Same error processing as in udp 105-109
 						MinetSendToMonitor(MinetMonitoringEvent("Unknown port, sending ICMP error message"));
@@ -190,7 +205,7 @@ int main(int argc, char * argv[]) {
 						MinetSendToMonitor(MinetMonitoringEvent("ICMP error message has been sent to host"));
 						MinetSend(mux, error);
 					}
-				}
+				}*/
 				
 				
 				
