@@ -104,9 +104,9 @@ int main(int argc, char * argv[]) {
 
     MinetEvent event;
     double timeout = 100;
-	
+	int seqnum;
 	Connection c;
-	/* COMMENT OUT WHEN NOT IN CLIENT MODE */
+	/* COMMENT OUT WHEN NOT IN CLIENT MODE 
 	
 	cout << "Sending SYN...\n";
 	c.src = MyIPAddr();
@@ -115,12 +115,12 @@ int main(int argc, char * argv[]) {
 	c.destport = 3000;
 	unsigned char flag = 0;
 	SET_SYN(flag);
-	int seqnum = 500;
+	seqnum = 500;
 	sendpacket(mux, c, seqnum, 0, flag);
 	sendpacket(mux, c, seqnum, 0, flag);
 	
+	/******************************************/
 	
-
     while (MinetGetNextEvent(event, timeout) == 0) {
 
 		if ((event.eventtype == MinetEvent::Dataflow) && 
@@ -136,6 +136,7 @@ int main(int argc, char * argv[]) {
 				IPHeader ipheader;
 				size_t size, actualSize;
 				char recvBuf[1024];
+				
 				
 				
 				//Receive packet
@@ -165,7 +166,7 @@ int main(int argc, char * argv[]) {
 					cout<< "this is a syn \n";
 					//Add new connection
 					
-					
+					seqnum = 600;
 					tcpheader.GetSeqNum(recseq);
 					
 					flags = 0;
@@ -185,15 +186,21 @@ int main(int argc, char * argv[]) {
 				else if(IS_SYN(flags) && IS_ACK(flags))
 				{
 					//Send ack
+					cout << "Recieved SYNACK, sending ACK\n";
 					tcpheader.GetSeqNum(recseq);
 					flags = 0;
 					SET_ACK(flags);
-					sendpacket(mux, c, seqnum +1, recseq + 1, flags);
+					seqnum++;
+					sendpacket(mux, c, seqnum, recseq + 1, flags);
 				}
 				else
 				{
 					cout << "Recieved another packet\n";
-					
+					tcpheader.GetSeqNum(recseq);
+					flags = 0;
+					seqnum++;
+					SET_ACK(flags);
+					sendpacket(mux, c, seqnum +1, recseq + 1, flags);
 				
 				}
 					/*else
