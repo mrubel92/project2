@@ -64,6 +64,13 @@ void sendpacket(MinetHandle handle, Connection c, int seq, int ack, unsigned cha
 	
 }
 
+Packet receivepacket(MinetHandle handle)
+{
+	Packet rec;
+	MinetReceive(handle, rec);
+	return rec;
+}
+
 
 int main(int argc, char * argv[]) {
     MinetHandle mux;
@@ -142,7 +149,8 @@ int main(int argc, char * argv[]) {
 				
 				
 				//Receive packet
-				MinetReceive(mux, rec);
+				rec = receivepacket(mux);
+				
 				unsigned short len = TCPHeader::EstimateTCPHeaderLength(rec);
 				unsigned char flags = 0;
 				unsigned int recseq;
