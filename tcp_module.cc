@@ -52,12 +52,14 @@ void sendpacket(MinetHandle handle, Connection c, int seq, int ack, unsigned cha
 	tcph.SetSourcePort(c.srcport, sp);
 	tcph.SetFlags(flags, sp);
 	tcph.SetSeqNum(seq, sp);
+	tcph.SetWinSize(14600, sp);
 	if(IS_ACK(flags))
 	{
 		tcph.SetAckNum(ack, sp);
 	}
 	tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, sp);
 	sp.PushBackHeader(tcph);
+	cout << "We sent a seq num of: " << seq <<".\n";
 	MinetSend(handle, sp);
 	
 }
@@ -172,7 +174,7 @@ int main(int argc, char * argv[]) {
 					flags = 0;
 					SET_SYN(flags);
 					SET_ACK(flags);
-					sendpacket(mux, c, 500, recseq + 1,  flags);						
+					sendpacket(mux, c, seqnum, recseq + 1,  flags);						
 					
 					/*SockRequestResponse resp;
 					resp.type = WRITE;
@@ -193,7 +195,33 @@ int main(int argc, char * argv[]) {
 					seqnum++;
 					sendpacket(mux, c, seqnum, recseq + 1, flags);
 				}
-				else
+				else if(IS_ACK(flags)&&IS_PSH(flags))
+				{
+					//We receive a packet from the client
+					cout << "Received packet \n";
+					tcpheader.GetSeqNum(recseq);
+					flags = 0;
+					SET_ACK(flags);
+					seqnum++;
+					sendpacket(mux, c, seqnum, recseq + 1, flags);
+				
+				}
+				/*else if(IS_ACK(flags))
+				{
+					cout << "Received ACK, do nothing?\n";
+				}*/
+				else if(IS_FIN(flags)&&IS_ACK(flags))
+				{
+					cout << "Received FIN from client \n";
+					//Send FINACK
+					tcpheader.GetSeqNum(recseq);
+					flags = 0;
+					SET_ACK(flags);
+					SET_FIN(flags);
+					seqnum++;
+					sendpacket(mux, c, seqnum, recseq+1, flags);
+				}
+				/*else
 				{
 					cout << "Recieved another packet\n";
 					tcpheader.GetSeqNum(recseq);
@@ -202,7 +230,7 @@ int main(int argc, char * argv[]) {
 					SET_ACK(flags);
 					sendpacket(mux, c, seqnum +1, recseq + 1, flags);
 				
-				}
+				}*/
 					/*else
 					{
 						//Same error processing as in udp 105-109
