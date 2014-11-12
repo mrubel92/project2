@@ -59,7 +59,7 @@ void sendpacket(MinetHandle handle, Connection c, int seq, int ack, unsigned cha
 	}
 	tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, sp);
 	sp.PushBackHeader(tcph);
-	cout << "We sent a seq num of: " << seq <<".\n";
+	//cout << "We sent a seq num of: " << seq <<".\n";
 	MinetSend(handle, sp);
 	
 }
@@ -143,10 +143,8 @@ int main(int argc, char * argv[]) {
 				Packet rec;
 				TCPHeader tcpheader;
 				IPHeader ipheader;
-				size_t size, actualSize;
 				char recvBuf[1024];
-				
-				
+				size_t recvSize;
 				
 				//Receive packet
 				rec = receivepacket(mux);
@@ -182,15 +180,7 @@ int main(int argc, char * argv[]) {
 					flags = 0;
 					SET_SYN(flags);
 					SET_ACK(flags);
-					sendpacket(mux, c, seqnum, recseq + 1,  flags);						
-					
-					/*SockRequestResponse resp;
-					resp.type = WRITE;
-					resp.connection = c;
-					resp.error = EOK;
-					resp.data = NULL;
-					
-					MinetSend(sock, resp);*/
+					sendpacket(mux, c, seqnum, recseq + 1,  flags);
 					
 				}
 				else if(IS_SYN(flags) && IS_ACK(flags))
@@ -207,6 +197,13 @@ int main(int argc, char * argv[]) {
 				{
 					//We receive a packet from the client
 					cout << "Received packet \n";
+					//show data sent
+					Buffer &data = rec.GetPayload();
+					recvSize = data.GetSize();
+					data.GetData(recvBuf, recvSize, 0);
+					cout << "Data Received is: " << recvBuf << "\n";
+					
+					//send ack
 					tcpheader.GetSeqNum(recseq);
 					flags = 0;
 					SET_ACK(flags);
@@ -229,16 +226,11 @@ int main(int argc, char * argv[]) {
 					seqnum++;
 					sendpacket(mux, c, seqnum, recseq+1, flags);
 				}
-				/*else
+				else
 				{
-					cout << "Recieved another packet\n";
-					tcpheader.GetSeqNum(recseq);
-					flags = 0;
-					seqnum++;
-					SET_ACK(flags);
-					sendpacket(mux, c, seqnum +1, recseq + 1, flags);
+					cout << "Don't know how this happened?\n";
 				
-				}*/
+				}
 					/*else
 					{
 						//Same error processing as in udp 105-109
@@ -249,21 +241,6 @@ int main(int argc, char * argv[]) {
 						MinetSend(mux, error);
 					}
 				}*/
-				
-				
-				
-				
-				
-				
-				//Buffer payload = rec.GetPayload().ExtractFront((unsigned short)size);
-				
-				//display buffer
-				//size = payload.GetSize();
-				//actualSize = payload.GetData(recvBuf, size, 0);
-				
-				
-				//cout << recvBuf << "\n" << size << "\n" << actualSize << "\n";
-				//cout << recvBuf << "\n" << size << "\n" << actualSize << "\n";
 				
 			}
 
