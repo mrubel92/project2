@@ -52,14 +52,23 @@ void sendpacket(MinetHandle handle, Connection c, int seq, int ack, unsigned cha
 	tcph.SetSourcePort(c.srcport, sp);
 	tcph.SetFlags(flags, sp);
 	tcph.SetSeqNum(seq, sp);
+	tcph.SetWinSize(14600, sp);
 	if(IS_ACK(flags))
 	{
 		tcph.SetAckNum(ack, sp);
 	}
 	tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, sp);
 	sp.PushBackHeader(tcph);
+	//cout << "We sent a seq num of: " << seq <<".\n";
 	MinetSend(handle, sp);
 	
+}
+
+Packet receivepacket(MinetHandle handle)
+{
+	Packet rec;
+	MinetReceive(handle, rec);
+	return rec;
 }
 
 
@@ -104,9 +113,9 @@ int main(int argc, char * argv[]) {
 
     MinetEvent event;
     double timeout = 100;
-	
+	int seqnum;
 	Connection c;
-	/* COMMENT OUT WHEN NOT IN CLIENT MODE */
+	/* COMMENT OUT WHEN NOT IN CLIENT MODE 
 	
 	cout << "Sending SYN...\n";
 	c.src = MyIPAddr();
@@ -115,12 +124,12 @@ int main(int argc, char * argv[]) {
 	c.destport = 3000;
 	unsigned char flag = 0;
 	SET_SYN(flag);
-	int seqnum = 500;
+	seqnum = 500;
 	sendpacket(mux, c, seqnum, 0, flag);
 	sendpacket(mux, c, seqnum, 0, flag);
 	
+	/******************************************/
 	
-
     while (MinetGetNextEvent(event, timeout) == 0) {
 
 		if ((event.eventtype == MinetEvent::Dataflow) && 
@@ -134,12 +143,12 @@ int main(int argc, char * argv[]) {
 				Packet rec;
 				TCPHeader tcpheader;
 				IPHeader ipheader;
-				size_t size, actualSize;
 				char recvBuf[1024];
-				
+				size_t recvSize;
 				
 				//Receive packet
-				MinetReceive(mux, rec);
+				rec = receivepacket(mux);
+				
 				unsigned short len = TCPHeader::EstimateTCPHeaderLength(rec);
 				unsigned char flags = 0;
 				unsigned int recseq;
@@ -165,35 +174,61 @@ int main(int argc, char * argv[]) {
 					cout<< "this is a syn \n";
 					//Add new connection
 					
-					
+					seqnum = 600;
 					tcpheader.GetSeqNum(recseq);
 					
 					flags = 0;
 					SET_SYN(flags);
 					SET_ACK(flags);
-					sendpacket(mux, c, 500, recseq + 1,  flags);						
-					
-					/*SockRequestResponse resp;
-					resp.type = WRITE;
-					resp.connection = c;
-					resp.error = EOK;
-					resp.data = NULL;
-					
-					MinetSend(sock, resp);*/
+					sendpacket(mux, c, seqnum, recseq + 1,  flags);
 					
 				}
 				else if(IS_SYN(flags) && IS_ACK(flags))
 				{
 					//Send ack
+					cout << "Recieved SYNACK, sending ACK\n";
 					tcpheader.GetSeqNum(recseq);
 					flags = 0;
 					SET_ACK(flags);
-					sendpacket(mux, c, seqnum +1, recseq + 1, flags);
+					seqnum++;
+					sendpacket(mux, c, seqnum, recseq + 1, flags);
+				}
+				else if(IS_ACK(flags)&&IS_PSH(flags))
+				{
+					//We receive a packet from the client
+					cout << "Received packet \n";
+					//show data sent
+					Buffer &data = rec.GetPayload();
+					recvSize = data.GetSize();
+					data.GetData(recvBuf, recvSize, 0);
+					cout << "Data Received is: " << recvBuf << "\n";
+					
+					//send ack
+					tcpheader.GetSeqNum(recseq);
+					flags = 0;
+					SET_ACK(flags);
+					seqnum++;
+					sendpacket(mux, c, seqnum, recseq + 1, flags);
+				
+				}
+				/*else if(IS_ACK(flags))
+				{
+					cout << "Received ACK, do nothing?\n";
+				}*/
+				else if(IS_FIN(flags)&&IS_ACK(flags))
+				{
+					cout << "Received FIN from client \n";
+					//Send FINACK
+					tcpheader.GetSeqNum(recseq);
+					flags = 0;
+					SET_ACK(flags);
+					SET_FIN(flags);
+					seqnum++;
+					sendpacket(mux, c, seqnum, recseq+1, flags);
 				}
 				else
 				{
-					cout << "Recieved another packet\n";
-					
+					cout << "Don't know how this happened?\n";
 				
 				}
 					/*else
@@ -206,21 +241,6 @@ int main(int argc, char * argv[]) {
 						MinetSend(mux, error);
 					}
 				}*/
-				
-				
-				
-				
-				
-				
-				//Buffer payload = rec.GetPayload().ExtractFront((unsigned short)size);
-				
-				//display buffer
-				//size = payload.GetSize();
-				//actualSize = payload.GetData(recvBuf, size, 0);
-				
-				
-				//cout << recvBuf << "\n" << size << "\n" << actualSize << "\n";
-				//cout << recvBuf << "\n" << size << "\n" << actualSize << "\n";
 				
 			}
 
